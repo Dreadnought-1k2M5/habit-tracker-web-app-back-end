@@ -90,6 +90,12 @@ app.post('/register', (req, res)=>{
     
 })
 
+app.get('/logout', (req, res)=>{
+    req.session.destroy((err)=>{
+        res.send(true);
+    })
+})
+
 app.listen(PORT, ()=>{
     console.log(`Listening to PORT: ${PORT}`);
 })
