@@ -44,12 +44,13 @@ app.get('/', (req, res)=>{
     let isAuthenticated = req.body.isAuthenticated;
     
     if(req.session.userSession){
-        console.log(req.session.userSession);
+        
         connection.query(`select total_points, total_hours from profile_table where profile_id='${req.session.userSession[0].profile_id}';`, function(err, totalValues){
             console.log(totalValues);
+            console.log(totalValues.length);
             //send username and total values from profile_table
             connection.query(`select id_habit, habit_name, habit_total_points, habit_total_minutes, date_creation, update_latest_date from habit_table where profile_id='${req.session.userSession[0].profile_id}';`, function(err, tableResult){
-                console.log(tableResult);
+                
                 res.send({isAuthenticated: true, userProp: req.session.userSession[0].username, totalValues: totalValues[0], tableResult: tableResult})
 
             });
@@ -82,13 +83,13 @@ app.post('/register', (req, res)=>{
     let profile_id = uuidv4();
     let saltRounds = 10;
     let username = req.body.username;
-    console.log(req.body.password);
+    
     bcrypt.hash(req.body.password, saltRounds, (err, hash)=>{
         if(err){
             return res.send(err);
         }
         else{
-            console.log(hash);
+            
             //REMEBER - When dealing with foreign keys, the primary key cell of the second table should have a value first before the foreign key cell of the first error.
             //Otherwise, it wont work.
             connection.query(`INSERT INTO profile_table (profile_id, username, total_points, total_hours) VALUES ('${profile_id}', '${username}', 0, 0, 0);`);
@@ -105,7 +106,7 @@ app.post('/add-habit', (req, res)=>{
     console.log(req.session.userSession);
     let profile_id = req.session.userSession[0].profile_id;
     console.log(`\nPROFILE KEY: ${profile_id}\n`);
-    console.log(req.body.data);
+    
     
     connection.query(`INSERT INTO habit_table (profile_id, habit_name, habit_total_points, habit_total_minutes, date_creation, update_latest_date) VALUES ('${profile_id}', '${req.body.data}', 0, 0, NOW(), NOW());`);
     
@@ -137,7 +138,6 @@ app.post('/remove-habit', (req, res)=>{
 //GET HABITS LIST
 app.get('/get-habits-list', (req, res)=>{
     let profile_id = req.session.userSession[0].profile_id;
-    console.log(profile_id);
     connection.query(`SELECT id_habit, profile_id, habit_name from habit_table WHERE profile_id='${profile_id}';`, function(err, result){
         if(result == undefined){
             return res.send(false);
@@ -148,29 +148,73 @@ app.get('/get-habits-list', (req, res)=>{
 
 //add record
 app.post('/add-record-habit', (req, res)=>{
-    console.log(req.body.modalState);
-    console.log(typeof req.body.minutesValueState);
-    let habit_total_points_var = 0;
-    let habit_total_minutes_var = 0;
+    
+    let profile_id = req.session.userSession[0].profile_id;
+
+    //Get the id_habit
+    let id_habit_var = req.body.modalState.habitItem.id_habit;
+
+    //Sum of total minutes and points
+    let sum_minutes = 0, sum_points = 0;
+    
 
     //Retrieve current points and minutes
-    connection.query(`select habit_total_points, habit_total_minutes from habit_table`, function(err, results){
-        habit_total_points_var = parseInt(results[0].habit_total_points);
-        habit_total_minutes_var = parseInt(results[0].habit_total_minutes);
-    })
-    connection.query(`insert into habits_activity_log (habit_name, minutes, id_habit) values ('${req.body.modalState.habitItem.habit_name}', ${req.body.minutesValueState}, ${req.body.modalState.habitItem.id_habit});`, (err1, result_1)=>{
-        console.log("outer query");
-        if(err1){
-            console.log(err1);
-            return res.send(false);
+    connection.query(`select * from habit_table`, function(err, results){
+        if(err){
+            console.log(err);
+            return res.send(err);
         }
-        habit_total_points_var += 1;
-        habit_total_minutes_var += parseInt(req.body.minutesValueState);
-        console.log(req.body.modalState.habitItem.profile_id);
-        console.log(req.body.modalState.habitItem.profile_id);
-        console.log(result_1);
-        connection.query(`update habit_table set habit_total_points=${habit_total_points_var}, habit_total_minutes=${habit_total_minutes_var}, update_latest_date=NOW() where profile_id='${req.body.modalState.habitItem.profile_id}' and habit_name='${req.body.modalState.habitItem.habit_name}'; `,);   
-    });
+        console.log(results);
+        console.log(req.body.modalState);
+
+        //Get habit_total_points and habit_total_minutes with the correct id_habit
+        console.log(id_habit_var);
+
+        let elemObj = results.filter((elem)=> elem.id_habit === id_habit_var);
+        let habit_total_points_var = parseInt(elemObj[0].habit_total_points);
+        let habit_total_minutes_var = parseInt(elemObj[0].habit_total_minutes);
+
+        connection.query(`insert into habits_activity_log (habit_name, minutes, id_habit, profile_id) values ('${req.body.modalState.habitItem.habit_name}', ${req.body.minutesValueState}, ${req.body.modalState.habitItem.id_habit}, '${profile_id}');`, (err1, result_1)=>{
+            console.log("outer query");
+            if(err1){
+                console.log(err1);
+                return res.send(false);
+            }
+            habit_total_points_var += 1;
+            habit_total_minutes_var += parseInt(req.body.minutesValueState);
+            console.log(req.body.modalState.habitItem.profile_id);
+            console.log(result_1);
+            connection.query(`update habit_table set habit_total_points=${habit_total_points_var}, habit_total_minutes=${habit_total_minutes_var}, update_latest_date=NOW() where profile_id='${profile_id}' and habit_name='${req.body.modalState.habitItem.habit_name}' and id_habit=${id_habit_var}; `, (err, result)=>{
+                connection.query(`select minutes from habits_activity_log where profile_id='${profile_id}';`, function(err, result_minutes){
+                    console.log("LINE 183 - record");
+                    console.log(result);
+                    sum_minutes = result_minutes.reduce((accumulator, currentVal) => accumulator + currentVal.minutes, 0);
+                    console.log(`TOTAL MINUTES: ${sum_minutes}`);
+                    connection.query(`select habit_total_points from habit_table where profile_id='${profile_id}';`, function(err, result_points){
+                        if(err){
+                            console.log(err);
+                            return res.send(err);
+                        }
+                        console.log("LINE 196");
+                        console.log(result_points);
+                        let sum_points = result_points.reduce((accumulator, currentValue) => accumulator + currentValue.habit_total_points, 0);
+                        console.log(sum_points);
+                        //convert minutes to hours
+                        let totalTimeInHours = sum_minutes / 60;
+                        connection.query(`update profile_Table set total_points=${sum_points}, total_hours=${totalTimeInHours} where profile_id='${profile_id}';`);
+
+                    })
+                    /* connection.query(select )
+                    connection.query(`update profile_Table set total_points=${}, total_minutes`) */
+                })
+            });   
+        });
+
+    })
+/* 
+   
+    //Update profile_table
+    connection.query(`update profile_table set total`) */
 
     res.send(true);
 })
